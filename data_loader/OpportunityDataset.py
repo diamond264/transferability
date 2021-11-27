@@ -105,6 +105,15 @@ class OpportunityDataset(torch.utils.data.Dataset):
         return feature, cl, dl
 
 
+def get_loader(sensor_data_file_path, users, positions, selected_attrs_activities, batch_size, dataset, mode, num_workers=1):
+    """ Build and return a data loader """
+    if dataset == 'Opportunity':
+        dataset = OpportunityDataset(file=sensor_data_file_path, users=users, positions=positions, activities = selected_attrs_activities)
+
+    data_loader = torch.utils.data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=(mode == 'train'), num_workers=num_workers)
+    print("loader done!")
+    return data_loader
+
 
 if __name__ == '__main__':
     src_users = list(np.random.permutation(config.OpportunityOpt['users'])[:2])
@@ -119,6 +128,6 @@ if __name__ == '__main__':
     print("Src users: ", src_users, ", src positions: ", src_positions)
 
     # read for source
-    oppDataset = OpportunityDataset(file='/mnt/sting/adiorz/mobile_sensing/datasets/opportunity_std_scaled_all.csv', users=src_users, positions=src_positions)
+    oppDataset = OpportunityDataset(file='/mnt/sting/adiorz/mobile_sensing/datasets/opportunity_std_scaled_all.csv', users = src_users, positions=src_positions)
 
 

@@ -1,8 +1,10 @@
 import os
 import argparse
-from solver import Solver
-from data_loader import get_loader
+from core.solver import Solver
+# from data_loader import get_loader
+from data_loader.OpportunityDataset import get_loader
 from torch.backends import cudnn
+from config import OpportunityOpt
 
 
 def str2bool(v):
@@ -23,32 +25,36 @@ def main(config):
         os.makedirs(config.result_dir)
 
     # Data loader.
-    har_loader = None
+    opportunity_loader = None
 
     # FIXME
-    if config.dataset in ['~~~']:
-        har_loader = get_loader(~~~)
-    if config.dataset in ['~~~']:
-        har2_loader = get_loader(~~~)
-    
-    # Solver for training and testing StarGAN.
-    solver = Solver(har_loader, config)
+    if config.dataset in ['Opportunity']:
+        opportunity_loader = get_loader(sensor_data_file_path=config.opportunity_sensor_dir, users=OpportunityOpt['users'],
+                                        positions=OpportunityOpt['positions'], selected_attrs_activities=OpportunityOpt['classes'], batch_size=32,
+                                        dataset='Opportunity', mode=config.mode,
+                                        num_workers=config.num_workers)
+
+
+    solver = Solver(opportunity_loader, config)
 
     if config.mode == 'train':
-        solver.train()
+        print("Train")
+        # solver.train()
     elif config.mode == 'test':
-        solver.test()
+        print("test")
+        # solver.test()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     # Model configuration.
-    parser.add_argument('--c_dim', type=int, default=5, help='dimension of domain labels (1st dataset)')
-    parser.add_argument('--c2_dim', type=int, default=8, help='dimension of domain labels (2nd dataset)')
-    parser.add_argument('--celeba_crop_size', type=int, default=178, help='crop size for the CelebA dataset')
-    parser.add_argument('--rafd_crop_size', type=int, default=256, help='crop size for the RaFD dataset')
-    parser.add_argument('--image_size', type=int, default=128, help='image resolution')
+    # parser.add_argument('--c_dim', type=int, default=5, help='dimension of domain labels (1st dataset)') # CelebA dataset (why five? isn't it 40?) => (black hair, blond hair, brown hair, male , young)?
+    parser.add_argument('--c_dim', type=int, default=4, help='dimension of domain labels (1st dataset)') # CelebA dataset (why five? isn't it 40?) => (black hair, blond hair, brown hair, male , young)?
+    parser.add_argument('--c2_dim', type=int, default=8, help='dimension of domain labels (2nd dataset)') # RaFD dataset (angry, happy, sad, etc.)
+    parser.add_argument('--celeba_crop_size', type=int, default=178, help='crop size for the CelebA dataset') # we don't need crop
+    parser.add_argument('--rafd_crop_size', type=int, default=256, help='crop size for the RaFD dataset') #
+    parser.add_argument('--image_size', type=int, default=128, help='image resolution') # 2d size?
     parser.add_argument('--g_conv_dim', type=int, default=64, help='number of conv filters in the first layer of G')
     parser.add_argument('--d_conv_dim', type=int, default=64, help='number of conv filters in the first layer of D')
     parser.add_argument('--g_repeat_num', type=int, default=6, help='number of residual blocks in G')
@@ -58,10 +64,14 @@ if __name__ == '__main__':
     parser.add_argument('--lambda_gp', type=float, default=10, help='weight for gradient penalty')
     
     # Training configuration.
-    parser.add_argument('--dataset', type=str, default='CelebA', choices=['CelebA', 'RaFD', 'Both'])
-    parser.add_argument('--batch_size', type=int, default=16, help='mini-batch size')
-    parser.add_argument('--num_iters', type=int, default=200000, help='number of total iterations for training D')
-    parser.add_argument('--num_iters_decay', type=int, default=100000, help='number of iterations for decaying lr')
+    # parser.add_argument('--dataset', type=str, default='CelebA', choices=['CelebA', 'RaFD', 'Both'])
+    parser.add_argument('--dataset', type=str, default='Opportunity', choices=['Opportunity', 'Pamap2', 'Both'])
+    # parser.add_argument('--batch_size', type=int, default=16, help='mini-batch size')
+    parser.add_argument('--batch_size', type=int, default=32, help='mini-batch size')
+    # parser.add_argument('--num_iters', type=int, default=200000, help='number of total iterations for training D')
+    parser.add_argument('--num_iters', type=int, default=20, help='number of total iterations for training D')
+    # parser.add_argument('--num_iters_decay', type=int, default=100000, help='number of iterations for decaying lr')
+    parser.add_argument('--num_iters_decay', type=int, default=10, help='number of iterations for decaying lr')
     parser.add_argument('--g_lr', type=float, default=0.0001, help='learning rate for G')
     parser.add_argument('--d_lr', type=float, default=0.0001, help='learning rate for D')
     parser.add_argument('--n_critic', type=int, default=5, help='number of D updates per each G update')
@@ -69,10 +79,12 @@ if __name__ == '__main__':
     parser.add_argument('--beta2', type=float, default=0.999, help='beta2 for Adam optimizer')
     parser.add_argument('--resume_iters', type=int, default=None, help='resume training from this step')
     parser.add_argument('--selected_attrs', '--list', nargs='+', help='selected attributes for the CelebA dataset',
-                        default=['Black_Hair', 'Blond_Hair', 'Brown_Hair', 'Male', 'Young'])
+                        default=['stand', 'walk', 'sit', 'lie'])
+                        # default=['Black_Hair', 'Blond_Hair', 'Brown_Hair', 'Male', 'Young'])
 
     # Test configuration.
-    parser.add_argument('--test_iters', type=int, default=200000, help='test model from this step')
+    # parser.add_argument('--test_iters', type=int, default=200000, help='test model from this step')
+    parser.add_argument('--test_iters', type=int, default=20, help='test model from this step')
 
     # Miscellaneous.
     parser.add_argument('--num_workers', type=int, default=1)
@@ -81,13 +93,12 @@ if __name__ == '__main__':
 
     # Directories.
     # FIXME: Add directories for human activity recognition datasets
-    # parser.add_argument('--celeba_image_dir', type=str, default='data/celeba/images')
-    # parser.add_argument('--attr_path', type=str, default='data/celeba/list_attr_celeba.txt')
-    # parser.add_argument('--rafd_image_dir', type=str, default='data/RaFD/train')
-    # parser.add_argument('--log_dir', type=str, default='stargan/logs')
-    # parser.add_argument('--model_save_dir', type=str, default='stargan/models')
-    # parser.add_argument('--sample_dir', type=str, default='stargan/samples')
-    # parser.add_argument('--result_dir', type=str, default='stargan/results')
+    parser.add_argument('--opportunity_sensor_dir', type=str, default='/mnt/sting/adiorz/mobile_sensing/datasets/opportunity_std_scaled_all.csv')
+    parser.add_argument('--attr_path', type=str, default='data/list_attr_opportunity.txt')
+    parser.add_argument('--log_dir', type=str, default='/mnt/sting/adiorz/mobile_sensing/logs/transferability/opp_logs')
+    parser.add_argument('--model_save_dir', type=str, default='opportunity/models')
+    parser.add_argument('--sample_dir', type=str, default='opportunity/samples')
+    parser.add_argument('--result_dir', type=str, default='opportunity/results')
 
     # Step size.
     parser.add_argument('--log_step', type=int, default=10)
