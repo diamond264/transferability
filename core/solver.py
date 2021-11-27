@@ -71,7 +71,8 @@ class Solver(object):
     def build_model(self):
         """Create a generator and a discriminator."""
         # FIXME: Add dataset
-        if self.dataset in ['~~~']:
+        # if self.dataset in ['~~~']:
+        if self.dataset in ['Opportunity']:
             self.G = Generator(self.g_conv_dim, self.c_dim, self.g_repeat_num)
             self.D = Discriminator(self.image_size, self.d_conv_dim, self.c_dim, self.d_repeat_num) 
         elif self.dataset in ['Both']:
@@ -149,7 +150,13 @@ class Solver(object):
     def create_labels(self, c_org, c_dim=5, dataset='CelebA', selected_attrs=None):
         """Generate target domain labels for debugging and testing."""
         # Get hair color indices.
-        if dataset == 'CelebA':
+        if dataset == 'Opportunity':
+            activity_indices = []
+            for i, attr_name in enumerate(selected_attrs):
+                if attr_name in ['stand', 'walk', 'sit', 'lie']:
+                    activity_indices.append(i)
+
+        elif dataset == 'CelebA':
             hair_color_indices = []
             for i, attr_name in enumerate(selected_attrs):
                 if attr_name in ['Black_Hair', 'Blond_Hair', 'Brown_Hair', 'Gray_Hair']:
@@ -168,6 +175,15 @@ class Solver(object):
                     c_trg[:, i] = (c_trg[:, i] == 0)  # Reverse attribute value.
             elif dataset == 'RaFD':
                 c_trg = self.label2onehot(torch.ones(c_org.size(0))*i, c_dim)
+            elif dataset == 'Opportunity':
+                c_trg = c_org.clone()
+                if i in activity_indices:
+                    c_trg[:, i] = 1
+                    for j in activity_indices:
+                        if j!=i:
+                            c_trg[:, j] =0
+
+                # c_trg = self.label2onehot(torch.ones(c_org.size(0))*i, c_dim)
 
             c_trg_list.append(c_trg.to(self.device))
         return c_trg_list
@@ -186,6 +202,8 @@ class Solver(object):
             data_loader = self.celeba_loader
         elif self.dataset == 'RaFD':
             data_loader = self.rafd_loader
+        elif self.dataset == 'Opportunity':
+            data_loader = self.har_loader
 
         # Fetch fixed inputs for debugging.
         data_iter = iter(data_loader)
@@ -226,6 +244,10 @@ class Solver(object):
             if self.dataset == 'CelebA':
                 c_org = label_org.clone()
                 c_trg = label_trg.clone()
+            elif self.dataset == 'Opportunity':
+                c_org = label_org.clone()
+                c_trg = label_trg.clone()
+
             elif self.dataset == 'RaFD':
                 c_org = self.label2onehot(label_org, self.c_dim)
                 c_trg = self.label2onehot(label_trg, self.c_dim)
@@ -348,6 +370,8 @@ class Solver(object):
             data_loader = self.celeba_loader
         elif self.dataset == 'RaFD':
             data_loader = self.rafd_loader
+        elif self.dataset == 'Opporutniy':
+            data_loader = self.har_loader
         
         with torch.no_grad():
             for i, (x_real, c_org) in enumerate(data_loader):
