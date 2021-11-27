@@ -102,7 +102,15 @@ class OpportunityDataset(torch.utils.data.Dataset):
 
         feature, cl, dl = self.dataset[idx]
         feature = feature.float()
-        return feature, cl, dl
+        feature = feature.unsqueeze(0)
+        one_hot_cl = torch.zeros(opt['num_class']) # number of classes
+        one_hot_cl[(cl-1)] = torch.tensor(1)
+
+        print("feature size: ", feature.size(), "cl size: ", cl.size(), "cl: ", cl, "dl size: ", dl.size())
+
+        # might need to change the feature dimension
+        return feature, one_hot_cl
+        # return feature, cl, dl
 
 
 def get_loader(sensor_data_file_path, users, positions, selected_attrs_activities, batch_size, dataset, mode, num_workers=1):
