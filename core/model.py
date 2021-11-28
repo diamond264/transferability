@@ -9,34 +9,96 @@ class ResidualBlock(nn.Module):
     def __init__(self, dim_in, dim_out):
         super(ResidualBlock, self).__init__()
         self.main = nn.Sequential(
-            nn.Conv2d(dim_in, dim_out, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.InstanceNorm2d(dim_out, affine=True, track_running_stats=True),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(dim_out, dim_out, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.InstanceNorm2d(dim_out, affine=True, track_running_stats=True))
+            nn.Conv2d(dim_in, dim_out, kernel_size=(3, 1), stride=(1, 1), padding=(1, 0), bias=False),
+            nn.BatchNorm2d(dim_out, affine=True, track_running_stats=True),
+            nn.LeakyReLU(inplace=True),
+            nn.Conv2d(dim_out, dim_out, kernel_size=(3, 1), stride=(1, 1), padding=(1, 0), bias=False),
+            nn.BatchNorm2d(dim_out, affine=True, track_running_stats=True))
 
     def forward(self, x):
         return x + self.main(x)
 
 
+class DownBlock(nn.Module):
+    def __init__(self, c_dim, dim_in, extraction_rate):
+        super(DownBlock, self).__init__()
+        self.c_dim = c_dim
+        dim_out = dim_in*c_dim/extraction_rate
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(dim_in, dim_out, kernel_size=(3, c_dim), stride=(1, 1), padding=(1, 0), bias=False),
+            nn.BatchNorm2d(dim_out, affine=True, track_running_stats=True),
+            # FIXME: Not sure whether LeakyRelu has to be here
+            nn.LeakyReLU(inplace=True))
+
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(dim_in, dim_in, kernel_size=(3, 1), stride=(1, 1), padding=(1, 0), bias=False),
+            nn.BatchNorm2d(dim_in, affine=True, track_running_stats=True),
+            # FIXME: Not sure whether LeakyRelu has to be here
+            nn.LeakyReLU(inplace=True))
+
+        dim_out = dim_out/c_dim
+        self.conv3 = nn.Sequential(
+            nn.Conv2d(dim_out+dim_in, 2*dim_in, kernel_size=(3, 1), stride=(1, 1), padding=(1, 0), bias=False),
+            nn.BatchNorm2d(2*dim_in, affine=True, track_running_stats=True),
+            # FIXME: Not sure whether LeakyRelu has to be here
+            nn.LeakyReLU(inplace=True))
+
+        self.down = nn.AvgPool2d(kernel_size=(2, 1))
+
+    def forward(self, x):
+        conv1_res = self.conv1(x)
+        conv2_res = self.conv2(x)
+        batch_size, f_dim, s_dim, conv_dim = conv2_res.shape
+        conv2_res = conv2_res.view([batch_size, f_dim, self.c_dim, -1])
+        x = torch.cat([conv1_res, conv2_res], dim=1)
+        x = self.conv3(x)
+        x = self.down(x)
+        return x
+
+
+class UpBlock(nn.Module):
+    def __init__(self, dim_in, extraction_rate):
+        super(DownBlock, self).__init__()
+        
+        self.up = nn.MaxUnpool2d(kernel_size=(2, 1))
+
+        dim_out = dim_in//2
+        self.conv1 = nn.Sequential(
+            nn.ConvTranspose2d(dim_in, dim_out, kernel_size=(3, 1), stride=(1, 1), padding=(1, 0), bias=False),
+            nn.BatchNorm2d(dim_out, affine=True, track_running_stats=True),
+            # FIXME: Not sure whether LeakyRelu has to be here
+            nn.LeakyReLU(inplace=True))
+        
+        dim_in = dim_out
+        dim_out = dim_in//2
+        self.conv2 = nn.Sequential(
+            nn.ConvTranspose2d(dim_in, dim_out, kernel_size=(3, 1), stride=(1, 1), padding=(1, 0), bias=False),
+            nn.BatchNorm2d(dim_out, affine=True, track_running_stats=True),
+            # FIXME: Not sure whether LeakyRelu has to be here
+            nn.LeakyReLU(inplace=True))
+
+    def forward(self, x):
+        x = self.up(x)
+        x = self.conv1(x)
+        x = self.conv2(x)
+        return x
+
+
 class Generator(nn.Module):
     """Generator network."""
     # FIXME: Default parameters should be fixed
-    def __init__(self, conv_dim=64, c_dim=5, repeat_num=3):
+    def __init__(self, conv_dim=64, c_dim=5, repeat_num=3, extraction_rate=3):
         super(Generator, self).__init__()
 
         layers = []
-        layers.append(nn.Conv2d(1+2*c_dim, conv_dim, kernel_size=7, stride=1, padding=3, bias=False))
-        layers.append(nn.InstanceNorm2d(conv_dim, affine=True, track_running_stats=True))
-        layers.append(nn.ReLU(inplace=True))
+        layers.append(nn.Conv2d(1+2*c_dim, conv_dim, kernel_size=(7, 1), stride=(1, 1), padding=(3, 0), bias=False))
+        layers.append(nn.BatchNorm2d(conv_dim, affine=True, track_running_stats=True))
+        layers.append(nn.LeakyReLU(inplace=True))
 
         # Down-sampling layers.
-        # FIXME: Might be different from the figure in the paper
         curr_dim = conv_dim
         for i in range(2):
-            layers.append(nn.Conv2d(curr_dim, curr_dim*2, kernel_size=4, stride=2, padding=1, bias=False))
-            layers.append(nn.InstanceNorm2d(curr_dim*2, affine=True, track_running_stats=True))
-            layers.append(nn.ReLU(inplace=True))
+            layers.append(DownBlock(c_dim=c_dim, dim_in=curr_dim, extraction_rate=extraction_rate)
             curr_dim = curr_dim * 2
 
         # Bottleneck layers.
@@ -45,12 +107,10 @@ class Generator(nn.Module):
 
         # Up-sampling layers.
         for i in range(2):
-            layers.append(nn.ConvTranspose2d(curr_dim, curr_dim//2, kernel_size=4, stride=2, padding=1, bias=False))
-            layers.append(nn.InstanceNorm2d(curr_dim//2, affine=True, track_running_stats=True))
-            layers.append(nn.ReLU(inplace=True))
+            layers.append(UpBlock(dim_in=curr_dim, extraction_rate=extraction_rate)
             curr_dim = curr_dim // 2
 
-        layers.append(nn.Conv2d(curr_dim, 1, kernel_size=7, stride=1, padding=3, bias=False))
+        layers.append(nn.Conv2d(curr_dim, 1, kernel_size=(7, 1), stride=(1, 1), padding=(3, 0), bias=False))
         layers.append(nn.Tanh())
         self.main = nn.Sequential(*layers)
 
@@ -70,26 +130,66 @@ class Generator(nn.Module):
 
 class Discriminator(nn.Module):
     """Discriminator network with PatchGAN."""
-    def __init__(self, image_size=128, conv_dim=64, style_dim=5, context_dim=20, repeat_num=6):
+    def __init__(self, win_len=120, channel_dim=6, conv_dim=64, style_dim=5, context_dim=20):
         super(Discriminator, self).__init__()
         layers = []
-        # FIXME: kernel size and stride has to be changed
-        layers.append(nn.Conv2d(1, conv_dim, kernel_size=4, stride=2, padding=1))
+        layers.append(nn.Conv2d(1, conv_dim, kernel_size=(7, 3), stride=(1, 3), padding=(3, 0)))
+        layers.append(nn.BatchNorm2d(conv_dim, affine=True, track_running_stats=True))
         layers.append(nn.LeakyReLU(0.01))
 
-        curr_dim = conv_dim
-        for i in range(1, repeat_num):
-            layers.append(nn.Conv2d(curr_dim, curr_dim*2, kernel_size=4, stride=2, padding=1))
-            layers.append(nn.LeakyReLU(0.01))
-            curr_dim = curr_dim * 2
+        layers.append(nn.AvgPool2d(kernel_size=(4, 1)))
 
-        kernel_size = int(image_size / np.power(2, repeat_num))
+        layers.append(nn.Conv2d(conv_dim, conv_dim*2, kernel_size=(5, 1), stride=(1, 1), padding=(2, 0)))
+        layers.append(nn.BatchNorm2d(conv_dim*2, affine=True, track_running_stats=True))
+        layers.append(nn.LeakyReLU(0.01))
+
+        layers.append(nn.AvgPool2d(kernel_size=(3, 1)))
+
+        layers.append(nn.Linear(win_len//12 * channel_dim//3 * conv_dim*2, 2048))
+        layers.append(F.relu())
+        layers.append(nn.Linear(2048, 1024))
+        layers.append(F.relu())
+        layers.append(nn.Linear(1024, 500))
+        layers.append(F.relu())
+
         self.main = nn.Sequential(*layers)
-        self.conv1 = nn.Conv2d(curr_dim, 1, kernel_size=3, stride=1, padding=1, bias=False)
-        self.conv2 = nn.Conv2d(curr_dim, style_dim, kernel_size=kernel_size, bias=False)
+
+        layers_fc1 = []
+        layers_fc1.append(nn.Linear(500, 256))
+        layers_fc1.append(F.relu())
+        layers_fc1.append(nn.Linear(256, 128))
+        layers_fc1.append(F.relu())
+        layers_fc1.append(nn.Linear(128, 64))
+        layers_fc1.append(F.relu())
+        layers_fc1.append(nn.Linear(64, 1))
+        self.fc1 = nn.Sequential(*layers_fc1)
+
+        layers_fc2 = []
+        layers_fc2.append(nn.Linear(500, 256))
+        layers_fc2.append(F.relu())
+        layers_fc2.append(nn.Linear(256, 128))
+        layers_fc2.append(F.relu())
+        layers_fc2.append(nn.Linear(128, 64))
+        layers_fc2.append(F.relu())
+        layers_fc2.append(nn.Linear(64, style_dim))
+        self.fc2 = nn.Sequential(*layers_fc2)
+
+        layers_fc3 = []
+        layers_fc3.append(nn.Linear(500, 256))
+        layers_fc3.append(F.relu())
+        layers_fc3.append(nn.Linear(256, 128))
+        layers_fc3.append(F.relu())
+        layers_fc3.append(nn.Linear(128, 64))
+        layers_fc3.append(F.relu())
+        layers_fc3.append(nn.Linear(64, context_dim))
+        self.fc3 = nn.Sequential(*layers_fc3)
         
     def forward(self, x):
         h = self.main(x)
-        out_src = self.conv1(h)
-        out_cls = self.conv2(h)
-        return out_src, out_cls.view(out_cls.size(0), out_cls.size(1))
+        # label for real/fake
+        out_fake = self.fc1(h)
+        # label for style
+        out_style = self.fc2(h)
+        # label for context
+        out_context = self.fc3(h)
+        return out_fake, out_style, out_context
