@@ -98,7 +98,7 @@ class Generator(nn.Module):
         # Down-sampling layers.
         curr_dim = conv_dim
         for i in range(2):
-            layers.append(DownBlock(c_dim=c_dim, dim_in=curr_dim, extraction_rate=extraction_rate)
+            layers.append(DownBlock(c_dim=c_dim, dim_in=curr_dim, extraction_rate=extraction_rate))
             curr_dim = curr_dim * 2
 
         # Bottleneck layers.
@@ -107,7 +107,7 @@ class Generator(nn.Module):
 
         # Up-sampling layers.
         for i in range(2):
-            layers.append(UpBlock(dim_in=curr_dim, extraction_rate=extraction_rate)
+            layers.append(UpBlock(dim_in=curr_dim, extraction_rate=extraction_rate))
             curr_dim = curr_dim // 2
 
         layers.append(nn.Conv2d(curr_dim, 1, kernel_size=(7, 1), stride=(1, 1), padding=(3, 0), bias=False))
