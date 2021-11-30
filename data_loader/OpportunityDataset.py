@@ -102,6 +102,7 @@ class OpportunityDataset(torch.utils.data.Dataset):
 
         feature, cl, dl = self.dataset[idx]
         feature = feature.float()
+        feature = torch.transpose(feature, 0, 1)
         feature = feature.unsqueeze(0)
         one_hot_cl = torch.zeros(opt['num_class']) # number of classes
         one_hot_cl[(cl-1)] = torch.tensor(1)
