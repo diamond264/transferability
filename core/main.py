@@ -1,5 +1,11 @@
+#!/usr/bin/env python3
+
 import os
 import argparse
+
+import sys
+sys.path.append('../')
+
 from core.solver import Solver
 # from data_loader import get_loader
 from data_loader.OpportunityDataset import get_loader
@@ -30,16 +36,15 @@ def main(config):
     # FIXME
     if config.dataset in ['Opportunity']:
         opportunity_loader = get_loader(sensor_data_file_path=config.opportunity_sensor_dir, users=OpportunityOpt['users'],
-                                        positions=OpportunityOpt['positions'], selected_attrs_activities=OpportunityOpt['classes'], batch_size=32,
+                                        positions=OpportunityOpt['positions'], selected_attrs_activities=OpportunityOpt['classes'], batch_size=config.batch_size,
                                         dataset='Opportunity', mode=config.mode,
                                         num_workers=config.num_workers)
-
-
+    
     solver = Solver(opportunity_loader, config)
 
     if config.mode == 'train':
         print("Train")
-        # solver.train()
+        solver.train()
     elif config.mode == 'test':
         print("test")
         # solver.test()
@@ -51,10 +56,11 @@ if __name__ == '__main__':
     # Model configuration.
     # parser.add_argument('--c_dim', type=int, default=5, help='dimension of domain labels (1st dataset)') # CelebA dataset (why five? isn't it 40?) => (black hair, blond hair, brown hair, male , young)?
     parser.add_argument('--c_dim', type=int, default=4, help='dimension of domain labels (1st dataset)') # CelebA dataset (why five? isn't it 40?) => (black hair, blond hair, brown hair, male , young)?
+    parser.add_argument('--channel_dim', type=int, default=6)
     parser.add_argument('--c2_dim', type=int, default=8, help='dimension of domain labels (2nd dataset)') # RaFD dataset (angry, happy, sad, etc.)
     parser.add_argument('--celeba_crop_size', type=int, default=178, help='crop size for the CelebA dataset') # we don't need crop
     parser.add_argument('--rafd_crop_size', type=int, default=256, help='crop size for the RaFD dataset') #
-    parser.add_argument('--image_size', type=int, default=128, help='image resolution') # 2d size?
+    parser.add_argument('--image_size', type=int, default=60, help='image resolution') # 2d size?
     parser.add_argument('--g_conv_dim', type=int, default=64, help='number of conv filters in the first layer of G')
     parser.add_argument('--d_conv_dim', type=int, default=64, help='number of conv filters in the first layer of D')
     parser.add_argument('--g_repeat_num', type=int, default=6, help='number of residual blocks in G')

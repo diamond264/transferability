@@ -59,35 +59,34 @@ class DownBlock(nn.Module):
     def __init__(self, c_dim, dim_in, extraction_rate):
         super(DownBlock, self).__init__()
         self.c_dim = c_dim
-        dim_out = dim_in//2
+        dim_out = dim_in
         self.conv1 = nn.Sequential(
-            nn.ConvTranspose2d(dim_in, dim_out, kernel_size=(3, 1), stride=(1, 1), padding=(1, 0), bias=False),
+            nn.Conv2d(dim_in, dim_out, kernel_size=(3, 1), stride=(1, 1), padding=(1, 0), bias=False),
             nn.BatchNorm2d(dim_out, affine=True, track_running_stats=True),
             # FIXME: Not sure whether LeakyRelu has to be here
             nn.LeakyReLU(inplace=True))
-
-        dim_in = dim_out
-        dim_out = dim_in // 2
+        
+        dim_out = dim_in * 2
         self.conv2 = nn.Sequential(
-            nn.ConvTranspose2d(dim_in, dim_out, kernel_size=(3, 1), stride=(1, 1), padding=(1, 0), bias=False),
+            nn.Conv2d(dim_in, dim_out, kernel_size=(3, 1), stride=(1, 1), padding=(1, 0), bias=False),
             nn.BatchNorm2d(dim_out, affine=True, track_running_stats=True),
             # FIXME: Not sure whether LeakyRelu has to be here
             nn.LeakyReLU(inplace=True))
 
-        self.down = nn.AvgPool2d(kernel_size=(2, 1))
+        self.down = nn.MaxPool2d(kernel_size=(2, 1), return_indices=True)
 
     def forward(self, x):
         x = self.conv1(x)
         x = self.conv2(x)
-        x = self.down(x)
-        return x
+        x, indices = self.down(x)
+        return x, indices
 
 
 class UpBlock(nn.Module):
     def __init__(self, dim_in, extraction_rate):
         super(UpBlock, self).__init__()
         
-        self.up = nn.MaxUnpool2d(kernel_size=(2, 1))
+        self.up = nn.MaxUnpool2d(kernel_size=(2, 1), padding=(0, 0))
 
         dim_out = dim_in//2
         self.conv1 = nn.Sequential(
@@ -104,8 +103,8 @@ class UpBlock(nn.Module):
             # FIXME: Not sure whether LeakyRelu has to be here
             nn.LeakyReLU(inplace=True))
 
-    def forward(self, x):
-        x = self.up(x)
+    def forward(self, x, indices):
+        x = self.up(x, indices)
         x = self.conv1(x)
         x = self.conv2(x)
         return x
@@ -115,7 +114,7 @@ class Generator(nn.Module):
     """Generator network."""
     # FIXME: Default parameters should be fixed
     # def __init__(self, conv_dim=64, c_dim=5, repeat_num=3, extraction_rate=3):
-    def __init__(self, conv_dim=64, c_dim=5, repeat_num=3, extraction_rate=2):
+    def __init__(self, conv_dim=64, c_dim=4, repeat_num=3, extraction_rate=2):
         super(Generator, self).__init__()
 
         layers = []
@@ -153,6 +152,7 @@ class Generator(nn.Module):
         tgt_c = tgt_c.view(tgt_c.size(0), tgt_c.size(1), 1, 1)
         tgt_c = tgt_c.repeat(1, 1, x.size(2), x.size(3))
         x = torch.cat([x, src_c, tgt_c], dim=1)
+        print(x.shape)
         return self.main(x)
 
 
@@ -161,30 +161,36 @@ class Discriminator(nn.Module):
     # def __init__(self, win_len=120, channel_dim=6, conv_dim=64, style_dim=5, context_dim=20):
     def __init__(self, win_len=60, channel_dim=6, conv_dim=64, style_dim=4, context_dim=4):
         super(Discriminator, self).__init__()
+        self.win_len = win_len
+        self.channel_dim = channel_dim
+        self.conv_dim = conv_dim
+
         layers = []
         layers.append(nn.Conv2d(1, conv_dim, kernel_size=(7, 3), stride=(1, 3), padding=(3, 0)))
         layers.append(nn.BatchNorm2d(conv_dim, affine=True, track_running_stats=True))
         layers.append(nn.LeakyReLU(0.01))
 
-        layers.append(nn.AvgPool2d(kernel_size=(4, 1)))
+        layers.append(nn.AvgPool2d(kernel_size=(3, 1)))
 
         layers.append(nn.Conv2d(conv_dim, conv_dim*2, kernel_size=(5, 1), stride=(1, 1), padding=(2, 0)))
         layers.append(nn.BatchNorm2d(conv_dim*2, affine=True, track_running_stats=True))
         layers.append(nn.LeakyReLU(0.01))
 
-        layers.append(nn.AvgPool2d(kernel_size=(3, 1)))
+        layers.append(nn.AvgPool2d(kernel_size=(2, 1)))
+        self.main_cv = nn.Sequential(*layers)
 
-        layers.append(nn.Linear(win_len//12 * channel_dim//3 * conv_dim*2, 2048))
+        layers_fc0 = []
+        layers_fc0.append(nn.Linear(win_len//6 * channel_dim//3 * conv_dim*2, 2048))
         # layers.append(F.relu())
-        layers.append(nn.ReLU(True))
-        layers.append(nn.Linear(2048, 1024))
+        layers_fc0.append(nn.ReLU(True))
+        layers_fc0.append(nn.Linear(2048, 1024))
         # layers.append(F.relu())
-        layers.append(nn.ReLU(True))
-        layers.append(nn.Linear(1024, 500))
+        layers_fc0.append(nn.ReLU(True))
+        layers_fc0.append(nn.Linear(1024, 500))
         # layers.append(F.relu())
-        layers.append(nn.ReLU(True))
+        layers_fc0.append(nn.ReLU(True))
 
-        self.main = nn.Sequential(*layers)
+        self.main_fc = nn.Sequential(*layers_fc0)
 
         layers_fc1 = []
         layers_fc1.append(nn.Linear(500, 256))
@@ -226,7 +232,10 @@ class Discriminator(nn.Module):
         self.fc3 = nn.Sequential(*layers_fc3)
         
     def forward(self, x):
-        h = self.main(x)
+        print(x)
+        h = self.main_cv(x)
+        h = h.view(-1, self.win_len//6 * self.channel_dim//3 * self.conv_dim*2)
+        h = self.main_fc(h)
         # label for real/fake
         out_fake = self.fc1(h)
         # label for style
