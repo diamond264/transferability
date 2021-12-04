@@ -88,7 +88,7 @@ class UpBlock(nn.Module):
         
         self.up = nn.MaxUnpool2d(kernel_size=(2, 1), padding=(0, 0))
 
-        dim_out = dim_in//2
+        dim_out = dim_in
         self.conv1 = nn.Sequential(
             nn.ConvTranspose2d(dim_in, dim_out, kernel_size=(3, 1), stride=(1, 1), padding=(1, 0), bias=False),
             nn.BatchNorm2d(dim_out, affine=True, track_running_stats=True),
@@ -114,32 +114,46 @@ class Generator(nn.Module):
     """Generator network."""
     # FIXME: Default parameters should be fixed
     # def __init__(self, conv_dim=64, c_dim=5, repeat_num=3, extraction_rate=3):
-    def __init__(self, conv_dim=64, c_dim=4, repeat_num=3, extraction_rate=2):
+    def __init__(self, conv_dim=32, c_dim=4, repeat_num=3, extraction_rate=2):
         super(Generator, self).__init__()
 
         layers = []
-        layers.append(nn.Conv2d(1+2*c_dim, conv_dim, kernel_size=(7, 1), stride=(1, 1), padding=(3, 0), bias=False))
+        layers.append(nn.Conv2d(1+2*c_dim, conv_dim, kernel_size=(5, 1), stride=(1, 1), padding=(2, 0), bias=False))
         layers.append(nn.BatchNorm2d(conv_dim, affine=True, track_running_stats=True))
         layers.append(nn.LeakyReLU(inplace=True))
+        self.downconv = nn.Sequential(*layers)
 
         # Down-sampling layers.
         curr_dim = conv_dim
-        for i in range(2):
-            layers.append(DownBlock(c_dim=c_dim, dim_in=curr_dim, extraction_rate=extraction_rate))
-            curr_dim = curr_dim * 2
+        self.down1 = DownBlock(c_dim=c_dim, dim_in=curr_dim, extraction_rate=extraction_rate)
+        curr_dim = curr_dim * 2
+        self.down2 = DownBlock(c_dim=c_dim, dim_in=curr_dim, extraction_rate=extraction_rate)
+        curr_dim = curr_dim * 2
+
+        # for i in range(2):
+        #     layers.append(DownBlock(c_dim=c_dim, dim_in=curr_dim, extraction_rate=extraction_rate))
+        #     curr_dim = curr_dim * 2
 
         # Bottleneck layers.
+        bottleneck_layers = []
         for i in range(repeat_num):
-            layers.append(ResidualBlock(dim_in=curr_dim, dim_out=curr_dim))
+            bottleneck_layers.append(ResidualBlock(dim_in=curr_dim, dim_out=curr_dim))
+        self.residualconv = nn.Sequential(*bottleneck_layers)
 
-        # Up-sampling layers.
-        for i in range(2):
-            layers.append(UpBlock(dim_in=curr_dim, extraction_rate=extraction_rate))
-            curr_dim = curr_dim // 2
+        # Up-sampling layers
+        self.up1 = UpBlock(dim_in=curr_dim, extraction_rate=extraction_rate)
+        curr_dim = curr_dim // 2
+        self.up2 = UpBlock(dim_in=curr_dim, extraction_rate=extraction_rate)
+        curr_dim = curr_dim // 2
 
-        layers.append(nn.Conv2d(curr_dim, 1, kernel_size=(7, 1), stride=(1, 1), padding=(3, 0), bias=False))
-        layers.append(nn.Tanh())
-        self.main = nn.Sequential(*layers)
+        # for i in range(2):
+        #     layers.append(UpBlock(dim_in=curr_dim, extraction_rate=extraction_rate))
+        #     curr_dim = curr_dim // 2
+
+        last_layers = []
+        last_layers.append(nn.Conv2d(curr_dim, 1, kernel_size=(5, 1), stride=(1, 1), padding=(2, 0), bias=False))
+        last_layers.append(nn.Tanh())
+        self.lastconv = nn.Sequential(*last_layers)
 
     # src_c: source domain (one-hot vector)
     # tgt_c: target domain (one-hot vector)
@@ -152,21 +166,30 @@ class Generator(nn.Module):
         tgt_c = tgt_c.view(tgt_c.size(0), tgt_c.size(1), 1, 1)
         tgt_c = tgt_c.repeat(1, 1, x.size(2), x.size(3))
         x = torch.cat([x, src_c, tgt_c], dim=1)
-        print(x.shape)
-        return self.main(x)
+
+        x = self.downconv(x)
+        x, indices1 = self.down1(x)
+        x, indices2 = self.down2(x)
+        
+        x = self.residualconv(x)
+        
+        x = self.up1(x, indices2)
+        x = self.up2(x, indices1)
+        x = self.lastconv(x)
+        return x
 
 
 class Discriminator(nn.Module):
     """Discriminator network with PatchGAN."""
     # def __init__(self, win_len=120, channel_dim=6, conv_dim=64, style_dim=5, context_dim=20):
-    def __init__(self, win_len=60, channel_dim=6, conv_dim=64, style_dim=4, context_dim=4):
+    def __init__(self, win_len=60, channel_dim=6, conv_dim=32, style_dim=4, context_dim=4):
         super(Discriminator, self).__init__()
         self.win_len = win_len
         self.channel_dim = channel_dim
         self.conv_dim = conv_dim
 
         layers = []
-        layers.append(nn.Conv2d(1, conv_dim, kernel_size=(7, 3), stride=(1, 3), padding=(3, 0)))
+        layers.append(nn.Conv2d(1, conv_dim, kernel_size=(5, 3), stride=(1, 3), padding=(2, 0)))
         layers.append(nn.BatchNorm2d(conv_dim, affine=True, track_running_stats=True))
         layers.append(nn.LeakyReLU(0.01))
 
@@ -180,14 +203,11 @@ class Discriminator(nn.Module):
         self.main_cv = nn.Sequential(*layers)
 
         layers_fc0 = []
-        layers_fc0.append(nn.Linear(win_len//6 * channel_dim//3 * conv_dim*2, 2048))
-        # layers.append(F.relu())
+        layers_fc0.append(nn.Linear(win_len//6 * channel_dim//3 * conv_dim*2, 1024))
         layers_fc0.append(nn.ReLU(True))
-        layers_fc0.append(nn.Linear(2048, 1024))
-        # layers.append(F.relu())
-        layers_fc0.append(nn.ReLU(True))
+        # layers_fc0.append(nn.Linear(2048, 1024))
+        # layers_fc0.append(nn.ReLU(True))
         layers_fc0.append(nn.Linear(1024, 500))
-        # layers.append(F.relu())
         layers_fc0.append(nn.ReLU(True))
 
         self.main_fc = nn.Sequential(*layers_fc0)
