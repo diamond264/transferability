@@ -1,7 +1,7 @@
 from model import Generator
 from model import Discriminator
 from torch.autograd import Variable
-from torchvision.utils import save_image
+
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -27,7 +27,8 @@ class Solver(object):
         self.d_conv_dim = config.d_conv_dim
         self.g_repeat_num = config.g_repeat_num
         self.d_repeat_num = config.d_repeat_num
-        self.lambda_cls = config.lambda_cls
+        self.lambda_pos = config.lambda_pos
+        self.lambda_act = config.lambda_act
         self.lambda_rec = config.lambda_rec
         self.lambda_gp = config.lambda_gp
 
@@ -142,7 +143,7 @@ class Solver(object):
         out[np.arange(batch_size), labels.long()] = 1
         return out
 
-    def create_labels(self, c_org, c_dim=4, dataset='Opportunity', selected_attrs=None):
+    def create_labels(self, c_org, style_dim=4, dataset='Opportunity', selected_attrs=['RUA', 'LLA', 'L_Shoe', 'Back']):
         """Generate target domain labels for debugging and testing."""
         # Get hair color indices.
         if dataset == 'Opportunity':
@@ -155,7 +156,7 @@ class Solver(object):
                     position_indices.append(i)
 
         c_trg_list = []
-        for i in range(c_dim):
+        for i in range(style_dim):
             if dataset == 'Opportunity':
                 c_trg = c_org.clone()
                 # if i in activity_indices:
@@ -189,7 +190,7 @@ class Solver(object):
         x_fixed, c_org, act_class_label = next(data_iter) # here: c_org: is position label!!
 
         x_fixed = x_fixed.to(self.device)
-        c_fixed_list = self.create_labels(c_org, self.c_dim, self.dataset, self.selected_attrs)
+        c_fixed_list = self.create_labels(c_org, self.style_dim, self.dataset, self.selected_attrs)
 
         # Learning rate cache for decaying.
         g_lr = self.g_lr
@@ -210,49 +211,44 @@ class Solver(object):
             #                             1. Preprocess input data                                #
             # =================================================================================== #
 
-            # Fetch real images and labels.
+            # Fetch real sensor data and labels.
             try:
                 # x_real, label_org = next(data_iter)
-                x_real, label_org, _ = next(data_iter) # miss activity class label
+                x_real, pos_label_org, act_label_org = next(data_iter) # miss activity class label
             except:
                 data_iter = iter(data_loader)
                 # x_real, label_org = next(data_iter)
-                x_real, label_org, _ = next(data_iter) # miss activity class label
+                x_real, pos_label_org, act_label_org = next(data_iter) # miss activity class label
 
             # Generate target domain labels randomly.
-            rand_idx = torch.randperm(label_org.size(0))
-            label_trg = label_org[rand_idx]
+            rand_idx = torch.randperm(pos_label_org.size(0))
+            pos_label_trg = pos_label_org[rand_idx]
 
-            if self.dataset == 'CelebA':
-                c_org = label_org.clone()
-                c_trg = label_trg.clone()
-            elif self.dataset == 'Opportunity':
-                c_org = label_org.clone()
-                c_trg = label_trg.clone()
+            if self.dataset == 'Opportunity':
+                c_org = pos_label_org.clone()
+                c_trg = pos_label_trg.clone()
 
-            elif self.dataset == 'RaFD':
-                c_org = self.label2onehot(label_org, self.c_dim)
-                c_trg = self.label2onehot(label_trg, self.c_dim)
-
-            x_real = x_real.to(self.device)           # Input images.
+            x_real = x_real.to(self.device)           # Input sensor data.
             c_org = c_org.to(self.device)             # Original domain labels.
             c_trg = c_trg.to(self.device)             # Target domain labels.
-            label_org = label_org.to(self.device)     # Labels for computing classification loss.
-            label_trg = label_trg.to(self.device)     # Labels for computing classification loss.
+            pos_label_org = pos_label_org.to(self.device)     # Labels for computing classification loss.
+            pos_label_trg = pos_label_trg.to(self.device)     # Labels for computing classification loss.
+            act_label_org = act_label_org.to(self.device)
 
             # =================================================================================== #
             #                             2. Train the discriminator                              #
             # =================================================================================== #
 
-            # Compute loss with real images.
-            out_src, out_cls, _ = self.D(x_real)
+            # Compute loss with real sensor data.
+            out_src, out_pos, out_act = self.D(x_real)
             d_loss_real = - torch.mean(out_src)
-            d_loss_cls = self.classification_loss(out_cls, label_org, self.dataset)
+            d_loss_pos = self.classification_loss(out_pos, pos_label_org, self.dataset)
+            d_loss_act = self.classification_loss(out_act, act_label_org, self.dataset)
 
-            # Compute loss with fake images.
+            # Compute loss with fake sensor data.
             x_fake = self.G(x_real, c_org, c_trg)
             # out_src, out_cls = self.D(x_fake.detach())
-            out_src, out_cls, _ = self.D(x_fake.detach()) # miss out context
+            out_src, _, _ = self.D(x_fake.detach()) # miss out context
             d_loss_fake = torch.mean(out_src)
 
             # Compute loss for gradient penalty.
@@ -263,7 +259,7 @@ class Solver(object):
             d_loss_gp = self.gradient_penalty(out_src, x_hat)
 
             # Backward and optimize.
-            d_loss = d_loss_real + d_loss_fake + self.lambda_cls * d_loss_cls + self.lambda_gp * d_loss_gp
+            d_loss = d_loss_real + d_loss_fake + self.lambda_pos * d_loss_pos + self.lambda_act * d_loss_act + self.lambda_gp * d_loss_gp
             self.reset_grad()
             d_loss.backward()
             self.d_optimizer.step()
@@ -272,7 +268,8 @@ class Solver(object):
             loss = {}
             loss['D/loss_real'] = d_loss_real.item()
             loss['D/loss_fake'] = d_loss_fake.item()
-            loss['D/loss_cls'] = d_loss_cls.item()
+            loss['D/loss_pos'] = d_loss_pos.item()
+            loss['D/loss_act'] = d_loss_act.item()
             loss['D/loss_gp'] = d_loss_gp.item()
             
             # =================================================================================== #
@@ -283,16 +280,17 @@ class Solver(object):
                 # Original-to-target domain.
                 x_fake = self.G(x_real, c_org, c_trg)
                 # out_src, out_cls = self.D(x_fake)
-                out_src, out_cls, _ = self.D(x_fake) # miss out context
+                out_src, out_pos, out_act = self.D(x_fake) # miss out context
                 g_loss_fake = - torch.mean(out_src)
-                g_loss_cls = self.classification_loss(out_cls, label_trg, self.dataset)
+                g_loss_pos = self.classification_loss(out_pos, pos_label_trg, self.dataset)
+                g_loss_act = self.classification_loss(out_act, act_label_org, self.dataset)
 
                 # Target-to-original domain.
-                x_reconst = self.G(x_fake, c_org, c_trg)
+                x_reconst = self.G(x_fake, c_trg, c_org)
                 g_loss_rec = torch.mean(torch.abs(x_real - x_reconst))
 
                 # Backward and optimize.
-                g_loss = g_loss_fake + self.lambda_rec * g_loss_rec + self.lambda_cls * g_loss_cls
+                g_loss = g_loss_fake + self.lambda_rec * g_loss_rec + self.lambda_act * g_loss_act + self.lambda_pos * g_loss_pos
                 self.reset_grad()
                 g_loss.backward()
                 self.g_optimizer.step()
@@ -300,7 +298,8 @@ class Solver(object):
                 # Logging.
                 loss['G/loss_fake'] = g_loss_fake.item()
                 loss['G/loss_rec'] = g_loss_rec.item()
-                loss['G/loss_cls'] = g_loss_cls.item()
+                loss['G/loss_pos'] = g_loss_pos.item()
+                loss['G/loss_act'] = g_loss_act.item()
 
             # =================================================================================== #
             #                                 4. Miscellaneous                                    #
@@ -319,16 +318,16 @@ class Solver(object):
                     for tag, value in loss.items():
                         self.logger.scalar_summary(tag, value, i+1)
 
-            # Translate fixed images for debugging.
+            # Translate fixed sensor data for debugging.
             if (i+1) % self.sample_step == 0:
                 with torch.no_grad():
                     x_fake_list = [x_fixed]
                     for c_fixed in c_fixed_list:
                         x_fake_list.append(self.G(x_fixed, c_fixed))
                     x_concat = torch.cat(x_fake_list, dim=3)
-                    sample_path = os.path.join(self.sample_dir, '{}-images.jpg'.format(i+1))
-                    save_image(self.denorm(x_concat.data.cpu()), sample_path, nrow=1, padding=0)
-                    print('Saved real and fake images into {}...'.format(sample_path))
+                    sample_path = os.path.join(self.sample_dir, '{}-sensor'.format(i+1))
+                    np.save(sample_path, x_concat)
+                    print('Saved real and fake sensor data into {}...'.format(sample_path))
 
             # Save model checkpoints.
             if (i+1) % self.model_save_step == 0:
@@ -346,33 +345,29 @@ class Solver(object):
                 print ('Decayed learning rates, g_lr: {}, d_lr: {}.'.format(g_lr, d_lr))
 
     def test(self):
-        """Translate images using StarGAN trained on a single dataset."""
+        """Translate sensor data using StarGAN trained on a single dataset."""
         # Load the trained generator.
         self.restore_model(self.test_iters)
         
         # Set data loader.
-        if self.dataset == 'CelebA':
-            data_loader = self.celeba_loader
-        elif self.dataset == 'RaFD':
-            data_loader = self.rafd_loader
-        elif self.dataset == 'Opporutniy':
+        if self.dataset == 'Opporutniy':
             data_loader = self.har_loader
         
         with torch.no_grad():
             # for i, (x_real, c_org) in enumerate(data_loader):
-            for i, (x_real, c_org, _) in enumerate(data_loader):
+            for i, (x_real, c_org, activity_label) in enumerate(data_loader):
 
-                # Prepare input images and target domain labels.
+                # Prepare input sensor data and target domain labels.
                 x_real = x_real.to(self.device)
-                c_trg_list = self.create_labels(c_org, self.c_dim, self.dataset, self.selected_attrs)
+                c_trg_list = self.create_labels(c_org, self.style_dim, self.dataset, self.selected_attrs)
 
-                # Translate images.
+                # Translate sensor data.
                 x_fake_list = [x_real]
                 for c_trg in c_trg_list:
                     x_fake_list.append(self.G(x_real, c_trg))
 
-                # Save the translated images.
+                # Save the translated sensor data.
                 x_concat = torch.cat(x_fake_list, dim=3)
-                result_path = os.path.join(self.result_dir, '{}-images.jpg'.format(i+1))
-                save_image(self.denorm(x_concat.data.cpu()), result_path, nrow=1, padding=0)
-                print('Saved real and fake images into {}...'.format(result_path))
+                result_path = os.path.join(self.result_dir, '{}-sensor'.format(i+1))
+                np.save(result_path, x_concat)
+                print('Saved real and fake sensor data into {}...'.format(result_path))

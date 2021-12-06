@@ -252,7 +252,6 @@ class Discriminator(nn.Module):
         self.fc3 = nn.Sequential(*layers_fc3)
         
     def forward(self, x):
-        print(x)
         h = self.main_cv(x)
         h = h.view(-1, self.win_len//6 * self.channel_dim//3 * self.conv_dim*2)
         h = self.main_fc(h)
