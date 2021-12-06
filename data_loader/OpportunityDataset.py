@@ -131,7 +131,8 @@ class OpportunityDataset(torch.utils.data.Dataset):
         feature = feature.unsqueeze(0)
 
         one_hot_position_label = torch.zeros(4)
-        one_hot_position_label[(pl-1)] = torch.tensor(1)
+        # one_hot_position_label = torch.zeros(4, dtype=torch.long)
+        one_hot_position_label[pl] = torch.tensor(1)
 
         # one_hot_cl = torch.zeros(opt['num_class']) # number of classes
         # one_hot_cl[(cl-1)] = torch.tensor(1)

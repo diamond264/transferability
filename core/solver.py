@@ -201,7 +201,8 @@ class Solver(object):
         elif dataset == 'RaFD':
             return F.cross_entropy(logit, target)
         elif dataset == 'Opportunity':
-            return F.binary_cross_entropy(logit, target, size_average=False) / logit.size(0) # add cross entropy loss for opportunity dataset
+            # return F.cross_entropy(logit, target)
+            return F.binary_cross_entropy_with_logits(logit, target, size_average=False) / logit.size(0) # add cross entropy loss for opportunity dataset
 
     def train(self):
         """Train StarGAN within a single dataset."""
