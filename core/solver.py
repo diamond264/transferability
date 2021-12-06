@@ -20,10 +20,9 @@ class Solver(object):
         self.har_loader = har_loader
 
         # Model configurations.
-        self.c_dim = config.c_dim
+        self.style_dim = config.style_dim
         self.channel_dim = config.channel_dim
-        self.c2_dim = config.c2_dim
-        self.image_size = config.image_size
+        self.window_size = config.window_size
         self.g_conv_dim = config.g_conv_dim
         self.d_conv_dim = config.d_conv_dim
         self.g_repeat_num = config.g_repeat_num
@@ -71,14 +70,9 @@ class Solver(object):
 
     def build_model(self):
         """Create a generator and a discriminator."""
-        # FIXME: Add dataset
-        # if self.dataset in ['~~~']:
         if self.dataset in ['Opportunity']:
-            self.G = Generator(self.g_conv_dim, self.c_dim, self.g_repeat_num)
-            self.D = Discriminator(self.image_size, self.channel_dim, self.d_conv_dim) 
-        elif self.dataset in ['Both']:
-            self.G = Generator(self.g_conv_dim, self.c_dim+self.c2_dim+2, self.g_repeat_num)   # 2 for mask vector.
-            self.D = Discriminator(self.image_size, self.d_conv_dim, self.c_dim+self.c2_dim, self.d_repeat_num)
+            self.G = Generator(self.g_conv_dim, self.style_dim, self.g_repeat_num)
+            self.D = Discriminator(self.window_size, self.channel_dim, self.d_conv_dim)
 
         self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr, [self.beta1, self.beta2])
         self.d_optimizer = torch.optim.Adam(self.D.parameters(), self.d_lr, [self.beta1, self.beta2])
@@ -148,7 +142,7 @@ class Solver(object):
         out[np.arange(batch_size), labels.long()] = 1
         return out
 
-    def create_labels(self, c_org, c_dim=5, dataset='CelebA', selected_attrs=None):
+    def create_labels(self, c_org, c_dim=4, dataset='Opportunity', selected_attrs=None):
         """Generate target domain labels for debugging and testing."""
         # Get hair color indices.
         if dataset == 'Opportunity':
@@ -160,26 +154,9 @@ class Solver(object):
                 if attr_name in ['RUA', 'LLA', 'L_Shoe', 'Back']: ## now we have positions as styles
                     position_indices.append(i)
 
-        elif dataset == 'CelebA':
-            hair_color_indices = []
-            for i, attr_name in enumerate(selected_attrs):
-                if attr_name in ['Black_Hair', 'Blond_Hair', 'Brown_Hair', 'Gray_Hair']:
-                    hair_color_indices.append(i)
-
         c_trg_list = []
         for i in range(c_dim):
-            if dataset == 'CelebA':
-                c_trg = c_org.clone()
-                if i in hair_color_indices:  # Set one hair color to 1 and the rest to 0.
-                    c_trg[:, i] = 1
-                    for j in hair_color_indices:
-                        if j != i:
-                            c_trg[:, j] = 0
-                else:
-                    c_trg[:, i] = (c_trg[:, i] == 0)  # Reverse attribute value.
-            elif dataset == 'RaFD':
-                c_trg = self.label2onehot(torch.ones(c_org.size(0))*i, c_dim)
-            elif dataset == 'Opportunity':
+            if dataset == 'Opportunity':
                 c_trg = c_org.clone()
                 # if i in activity_indices:
                 if i in position_indices:
@@ -194,24 +171,16 @@ class Solver(object):
             c_trg_list.append(c_trg.to(self.device))
         return c_trg_list
 
-    def classification_loss(self, logit, target, dataset='CelebA'):
+    def classification_loss(self, logit, target, dataset='Opportunity'):
         """Compute binary or softmax cross entropy loss."""
-        if dataset == 'CelebA':
-            return F.binary_cross_entropy_with_logits(logit, target, size_average=False) / logit.size(0)
-        elif dataset == 'RaFD':
-            return F.cross_entropy(logit, target)
-        elif dataset == 'Opportunity':
+        if dataset == 'Opportunity':
             # return F.cross_entropy(logit, target)
             return F.binary_cross_entropy_with_logits(logit, target, size_average=False) / logit.size(0) # add cross entropy loss for opportunity dataset
 
     def train(self):
         """Train StarGAN within a single dataset."""
         # Set data loader.
-        if self.dataset == 'CelebA':
-            data_loader = self.celeba_loader
-        elif self.dataset == 'RaFD':
-            data_loader = self.rafd_loader
-        elif self.dataset == 'Opportunity':
+        if self.dataset == 'Opportunity':
             data_loader = self.har_loader
 
         # Fetch fixed inputs for debugging.
@@ -319,7 +288,7 @@ class Solver(object):
                 g_loss_cls = self.classification_loss(out_cls, label_trg, self.dataset)
 
                 # Target-to-original domain.
-                x_reconst = self.G(x_fake, c_org)
+                x_reconst = self.G(x_fake, c_org, c_trg)
                 g_loss_rec = torch.mean(torch.abs(x_real - x_reconst))
 
                 # Backward and optimize.

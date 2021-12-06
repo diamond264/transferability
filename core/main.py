@@ -67,13 +67,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     # Model configuration.
-    # parser.add_argument('--c_dim', type=int, default=5, help='dimension of domain labels (1st dataset)') # CelebA dataset (why five? isn't it 40?) => (black hair, blond hair, brown hair, male , young)?
-    parser.add_argument('--c_dim', type=int, default=4, help='dimension of domain labels (1st dataset)') # CelebA dataset (why five? isn't it 40?) => (black hair, blond hair, brown hair, male , young)?
+    parser.add_argument('--style_dim', type=int, default=4, help='dimension of domain labels (1st dataset)') # CelebA dataset (why five? isn't it 40?) => (black hair, blond hair, brown hair, male , young)?
     parser.add_argument('--channel_dim', type=int, default=6)
-    parser.add_argument('--c2_dim', type=int, default=8, help='dimension of domain labels (2nd dataset)') # RaFD dataset (angry, happy, sad, etc.)
-    parser.add_argument('--celeba_crop_size', type=int, default=178, help='crop size for the CelebA dataset') # we don't need crop
-    parser.add_argument('--rafd_crop_size', type=int, default=256, help='crop size for the RaFD dataset') #
-    parser.add_argument('--image_size', type=int, default=60, help='image resolution') # 2d size?
+    parser.add_argument('--window_size', type=int, default=60, help='image resolution') # 2d size?
     parser.add_argument('--g_conv_dim', type=int, default=64, help='number of conv filters in the first layer of G')
     parser.add_argument('--d_conv_dim', type=int, default=64, help='number of conv filters in the first layer of D')
     parser.add_argument('--g_repeat_num', type=int, default=6, help='number of residual blocks in G')
