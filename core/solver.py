@@ -153,9 +153,12 @@ class Solver(object):
         # Get hair color indices.
         if dataset == 'Opportunity':
             activity_indices = []
+            position_indices = []
             for i, attr_name in enumerate(selected_attrs):
-                if attr_name in ['stand', 'walk', 'sit', 'lie']:
-                    activity_indices.append(i)
+                # if attr_name in ['stand', 'walk', 'sit', 'lie']:
+                #     activity_indices.append(i)
+                if attr_name in ['RUA', 'LLA', 'L_Shoe', 'Back']: ## now we have positions as styles
+                    position_indices.append(i)
 
         elif dataset == 'CelebA':
             hair_color_indices = []
@@ -178,11 +181,13 @@ class Solver(object):
                 c_trg = self.label2onehot(torch.ones(c_org.size(0))*i, c_dim)
             elif dataset == 'Opportunity':
                 c_trg = c_org.clone()
-                if i in activity_indices:
+                # if i in activity_indices:
+                if i in position_indices:
                     c_trg[:, i] = 1
-                    for j in activity_indices:
+                    # for j in activity_indices:
+                    for j in position_indices:
                         if j!=i:
-                            c_trg[:, j] =0
+                            c_trg[:, j] = 0
 
                 # c_trg = self.label2onehot(torch.ones(c_org.size(0))*i, c_dim)
 
@@ -195,6 +200,8 @@ class Solver(object):
             return F.binary_cross_entropy_with_logits(logit, target, size_average=False) / logit.size(0)
         elif dataset == 'RaFD':
             return F.cross_entropy(logit, target)
+        elif dataset == 'Opportunity':
+            return F.binary_cross_entropy(logit, target, size_average=False) / logit.size(0) # add cross entropy loss for opportunity dataset
 
     def train(self):
         """Train StarGAN within a single dataset."""
@@ -208,7 +215,9 @@ class Solver(object):
 
         # Fetch fixed inputs for debugging.
         data_iter = iter(data_loader)
-        x_fixed, c_org = next(data_iter)
+        # x_fixed, c_org = next(data_iter)
+        x_fixed, c_org, act_class_label = next(data_iter) # here: c_org: is position label!!
+
         x_fixed = x_fixed.to(self.device)
         c_fixed_list = self.create_labels(c_org, self.c_dim, self.dataset, self.selected_attrs)
 
@@ -233,10 +242,12 @@ class Solver(object):
 
             # Fetch real images and labels.
             try:
-                x_real, label_org = next(data_iter)
+                # x_real, label_org = next(data_iter)
+                x_real, label_org, _ = next(data_iter) # miss activity class label
             except:
                 data_iter = iter(data_loader)
-                x_real, label_org = next(data_iter)
+                # x_real, label_org = next(data_iter)
+                x_real, label_org, _ = next(data_iter) # miss activity class label
 
             # Generate target domain labels randomly.
             rand_idx = torch.randperm(label_org.size(0))
@@ -270,13 +281,15 @@ class Solver(object):
 
             # Compute loss with fake images.
             x_fake = self.G(x_real, c_org, c_trg)
-            out_src, out_cls = self.D(x_fake.detach())
+            # out_src, out_cls = self.D(x_fake.detach())
+            out_src, out_cls, _ = self.D(x_fake.detach()) # miss out context
             d_loss_fake = torch.mean(out_src)
 
             # Compute loss for gradient penalty.
             alpha = torch.rand(x_real.size(0), 1, 1, 1).to(self.device)
             x_hat = (alpha * x_real.data + (1 - alpha) * x_fake.data).requires_grad_(True)
-            out_src, _ = self.D(x_hat)
+            # out_src, _ = self.D(x_hat)
+            out_src, _, _ = self.D(x_hat) # miss out_context
             d_loss_gp = self.gradient_penalty(out_src, x_hat)
 
             # Backward and optimize.
@@ -299,7 +312,8 @@ class Solver(object):
             if (i+1) % self.n_critic == 0:
                 # Original-to-target domain.
                 x_fake = self.G(x_real, c_org, c_trg)
-                out_src, out_cls = self.D(x_fake)
+                # out_src, out_cls = self.D(x_fake)
+                out_src, out_cls, _ = self.D(x_fake) # miss out context
                 g_loss_fake = - torch.mean(out_src)
                 g_loss_cls = self.classification_loss(out_cls, label_trg, self.dataset)
 
@@ -375,7 +389,8 @@ class Solver(object):
             data_loader = self.har_loader
         
         with torch.no_grad():
-            for i, (x_real, c_org) in enumerate(data_loader):
+            # for i, (x_real, c_org) in enumerate(data_loader):
+            for i, (x_real, c_org, _) in enumerate(data_loader):
 
                 # Prepare input images and target domain labels.
                 x_real = x_real.to(self.device)

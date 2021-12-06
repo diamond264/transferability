@@ -11,6 +11,7 @@ from core.solver import Solver
 from data_loader.OpportunityDataset import get_loader
 from torch.backends import cudnn
 from config import OpportunityOpt
+from torch.backends import cuda
 
 
 def str2bool(v):
@@ -18,7 +19,10 @@ def str2bool(v):
 
 def main(config):
     # For fast training.
-    cudnn.benchmark = True
+    # cudnn.benchmark = True
+    # cudnn.deterministic = True # try to remove the cuda error CUDNN_STATUS_INTERNAL_ERROR
+    # cudnn.allow_tf32 = True
+    # cuda.matmul.allow_tf32 = True
 
     # Create directories if not exist.
     if not os.path.exists(config.log_dir):
@@ -35,8 +39,17 @@ def main(config):
 
     # FIXME
     if config.dataset in ['Opportunity']:
+        print("selected attributes (positions): ", config.selected_attrs, ", users: ", OpportunityOpt['users'], ", classes: ", OpportunityOpt['classes'], "\n")
+
+        # opportunity_loader = get_loader(sensor_data_file_path=config.opportunity_sensor_dir, users=OpportunityOpt['users'],
+        #                                 positions=OpportunityOpt['positions'], selected_attrs_activities=OpportunityOpt['classes'], batch_size=config.batch_size,
+        #                                 dataset='Opportunity', mode=config.mode,
+        #                                 num_workers=config.num_workers)
+
+
+        # all users, all activities, but positions are different (config.selected_attrs)
         opportunity_loader = get_loader(sensor_data_file_path=config.opportunity_sensor_dir, users=OpportunityOpt['users'],
-                                        positions=OpportunityOpt['positions'], selected_attrs_activities=OpportunityOpt['classes'], batch_size=config.batch_size,
+                                        positions=config.selected_attrs, activities=OpportunityOpt['classes'], batch_size=config.batch_size,
                                         dataset='Opportunity', mode=config.mode,
                                         num_workers=config.num_workers)
     
@@ -84,9 +97,11 @@ if __name__ == '__main__':
     parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for Adam optimizer')
     parser.add_argument('--beta2', type=float, default=0.999, help='beta2 for Adam optimizer')
     parser.add_argument('--resume_iters', type=int, default=None, help='resume training from this step')
-    parser.add_argument('--selected_attrs', '--list', nargs='+', help='selected attributes for the CelebA dataset',
-                        default=['stand', 'walk', 'sit', 'lie'])
+    # parser.add_argument('--selected_attrs', '--list', nargs='+', help='selected attributes for the CelebA dataset',
+    #                     default=['stand', 'walk', 'sit', 'lie'])
                         # default=['Black_Hair', 'Blond_Hair', 'Brown_Hair', 'Male', 'Young'])
+    parser.add_argument('--selected_attrs', '--list', nargs='+', help='selected attributes for the Opportunity dataset',
+                        default=['RUA', 'LLA', 'L_Shoe', 'Back']) # set it as four different positions out of 7
 
     # Test configuration.
     # parser.add_argument('--test_iters', type=int, default=200000, help='test model from this step')
@@ -100,7 +115,9 @@ if __name__ == '__main__':
     # Directories.
     # FIXME: Add directories for human activity recognition datasets
     parser.add_argument('--opportunity_sensor_dir', type=str, default='/mnt/sting/adiorz/mobile_sensing/datasets/opportunity_std_scaled_all.csv')
-    parser.add_argument('--attr_path', type=str, default='data/list_attr_opportunity.txt')
+    # parser.add_argument('--attr_path', type=str, default='data/list_attr_opportunity.txt')
+    parser.add_argument('--attr_path', type=str, default='data/attribute_list_opportunity.txt')
+
     parser.add_argument('--log_dir', type=str, default='/mnt/sting/adiorz/mobile_sensing/logs/transferability/opp_logs')
     parser.add_argument('--model_save_dir', type=str, default='opportunity/models')
     parser.add_argument('--sample_dir', type=str, default='opportunity/samples')

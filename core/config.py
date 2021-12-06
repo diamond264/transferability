@@ -11,8 +11,8 @@ OpportunityOpt = {
     'file_path': '/mnt/sting/adiorz/mobile_sensing/datasets/opportunity_std_scaled_all.csv',
     # 4 x 7 = 28 available domains
     'users': ['s' + str(i) for i in range(1, 5)],  # all available users
-    # 'positions': ['RUA', 'LUA', 'RLA', 'LLA', 'Back', 'L_Shoe', 'R_Shoe'],  # complete IMU sensor data only
-    'positions': ['RUA', 'LUA', 'RLA', 'LLA'],  # complete IMU sensor data only
+    'positions': ['RUA', 'LUA', 'RLA', 'LLA', 'Back', 'L_Shoe', 'R_Shoe'],  # complete IMU sensor data only => changed to here
+    # 'positions': ['RUA', 'LUA', 'RLA', 'LLA'],  # complete IMU sensor data only
 
     'classes': ['stand', 'walk', 'sit', 'lie'],  # remove null class
     'num_class': 4,
