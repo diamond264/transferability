@@ -319,7 +319,7 @@ class Solver(object):
                 g_loss_cls = self.classification_loss(out_cls, label_trg, self.dataset)
 
                 # Target-to-original domain.
-                x_reconst = self.G(x_fake, c_org)
+                x_reconst = self.G(x_fake, c_org, c_trg) # missing 1 required positional argument tgt_c??
                 g_loss_rec = torch.mean(torch.abs(x_real - x_reconst))
 
                 # Backward and optimize.
