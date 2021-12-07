@@ -152,7 +152,7 @@ class Generator(nn.Module):
 
         last_layers = []
         last_layers.append(nn.Conv2d(curr_dim, 1, kernel_size=(5, 1), stride=(1, 1), padding=(2, 0), bias=False))
-        last_layers.append(nn.Tanh())
+        # last_layers.append(nn.LeakyReLU(inplace=True))
         self.lastconv = nn.Sequential(*last_layers)
 
     # src_c: source domain (one-hot vector)
@@ -176,13 +176,14 @@ class Generator(nn.Module):
         x = self.up1(x, indices2)
         x = self.up2(x, indices1)
         x = self.lastconv(x)
+
         return x
 
 
 class Discriminator(nn.Module):
     """Discriminator network with PatchGAN."""
     # def __init__(self, win_len=120, channel_dim=6, conv_dim=64, style_dim=5, context_dim=20):
-    def __init__(self, win_len=60, channel_dim=6, conv_dim=32, style_dim=4, context_dim=4):
+    def __init__(self, win_len=60, channel_dim=6, conv_dim=32, style_dim=3, context_dim=1):
         super(Discriminator, self).__init__()
         self.win_len = win_len
         self.channel_dim = channel_dim
@@ -260,5 +261,5 @@ class Discriminator(nn.Module):
         # label for style
         out_style = self.fc2(h)
         # label for context
-        out_context = self.fc3(h)
-        return out_fake, out_style, out_context
+        # out_context = self.fc3(h)
+        return out_fake, out_style, 0#out_context

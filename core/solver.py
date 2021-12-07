@@ -9,6 +9,7 @@ import os
 import time
 import datetime
 
+from soft_dtw_cuda import SoftDTW
 
 class Solver(object):
     """Solver for training and testing StarGAN."""
@@ -73,7 +74,7 @@ class Solver(object):
         """Create a generator and a discriminator."""
         if self.dataset in ['Opportunity']:
             self.G = Generator(self.g_conv_dim, self.style_dim, self.g_repeat_num)
-            self.D = Discriminator(self.window_size, self.channel_dim, self.d_conv_dim)
+            self.D = Discriminator(self.window_size, self.channel_dim, self.d_conv_dim, self.style_dim)
 
         self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr, [self.beta1, self.beta2])
         self.d_optimizer = torch.optim.Adam(self.D.parameters(), self.d_lr, [self.beta1, self.beta2])
@@ -143,7 +144,7 @@ class Solver(object):
         out[np.arange(batch_size), labels.long()] = 1
         return out
 
-    def create_labels(self, c_org, style_dim=4, dataset='Opportunity', selected_attrs=['RUA', 'LLA', 'L_Shoe', 'Back']):
+    def create_labels(self, c_org, style_dim, dataset, selected_attrs):
         """Generate target domain labels for debugging and testing."""
         # Get hair color indices.
         if dataset == 'Opportunity':
@@ -152,8 +153,7 @@ class Solver(object):
             for i, attr_name in enumerate(selected_attrs):
                 # if attr_name in ['stand', 'walk', 'sit', 'lie']:
                 #     activity_indices.append(i)
-                if attr_name in ['RUA', 'LLA', 'L_Shoe', 'Back']: ## now we have positions as styles
-                    position_indices.append(i)
+                position_indices.append(i)
 
         c_trg_list = []
         for i in range(style_dim):
@@ -177,6 +177,10 @@ class Solver(object):
         if dataset == 'Opportunity':
             # return F.cross_entropy(logit, target)
             return F.binary_cross_entropy_with_logits(logit, target, size_average=False) / logit.size(0) # add cross entropy loss for opportunity dataset
+
+    def reconstruction_loss(self, x, y):
+        sdtw = SoftDTW(use_cuda=True, gamma=0.1)
+        return sdtw(x, y)
 
     def train(self):
         """Train StarGAN within a single dataset."""
@@ -233,7 +237,7 @@ class Solver(object):
             c_trg = c_trg.to(self.device)             # Target domain labels.
             pos_label_org = pos_label_org.to(self.device)     # Labels for computing classification loss.
             pos_label_trg = pos_label_trg.to(self.device)     # Labels for computing classification loss.
-            act_label_org = act_label_org.to(self.device)
+            # act_label_org = act_label_org.to(self.device)
 
             # =================================================================================== #
             #                             2. Train the discriminator                              #
@@ -243,7 +247,7 @@ class Solver(object):
             out_src, out_pos, out_act = self.D(x_real)
             d_loss_real = - torch.mean(out_src)
             d_loss_pos = self.classification_loss(out_pos, pos_label_org, self.dataset)
-            d_loss_act = self.classification_loss(out_act, act_label_org, self.dataset)
+            # d_loss_act = self.classification_loss(out_act, act_label_org, self.dataset)
 
             # Compute loss with fake sensor data.
             x_fake = self.G(x_real, c_org, c_trg)
@@ -259,7 +263,7 @@ class Solver(object):
             d_loss_gp = self.gradient_penalty(out_src, x_hat)
 
             # Backward and optimize.
-            d_loss = d_loss_real + d_loss_fake + self.lambda_pos * d_loss_pos + self.lambda_act * d_loss_act + self.lambda_gp * d_loss_gp
+            d_loss = d_loss_real + d_loss_fake + self.lambda_pos * d_loss_pos + self.lambda_gp * d_loss_gp# + self.lambda_act * d_loss_act
             self.reset_grad()
             d_loss.backward()
             self.d_optimizer.step()
@@ -269,7 +273,7 @@ class Solver(object):
             loss['D/loss_real'] = d_loss_real.item()
             loss['D/loss_fake'] = d_loss_fake.item()
             loss['D/loss_pos'] = d_loss_pos.item()
-            loss['D/loss_act'] = d_loss_act.item()
+            # loss['D/loss_act'] = d_loss_act.item()
             loss['D/loss_gp'] = d_loss_gp.item()
             
             # =================================================================================== #
@@ -283,14 +287,15 @@ class Solver(object):
                 out_src, out_pos, out_act = self.D(x_fake) # miss out context
                 g_loss_fake = - torch.mean(out_src)
                 g_loss_pos = self.classification_loss(out_pos, pos_label_trg, self.dataset)
-                g_loss_act = self.classification_loss(out_act, act_label_org, self.dataset)
+                # g_loss_act = self.classification_loss(out_act, act_label_org, self.dataset)
 
                 # Target-to-original domain.
                 x_reconst = self.G(x_fake, c_trg, c_org)
-                g_loss_rec = torch.mean(torch.abs(x_real - x_reconst))
+                # g_loss_rec = torch.mean(torch.abs(x_real - x_reconst))
+                g_loss_rec = self.reconstruction_loss(x_real.squeeze(1), x_reconst.squeeze(1)).mean()
 
                 # Backward and optimize.
-                g_loss = g_loss_fake + self.lambda_rec * g_loss_rec + self.lambda_act * g_loss_act + self.lambda_pos * g_loss_pos
+                g_loss = g_loss_fake + self.lambda_rec * g_loss_rec + self.lambda_pos * g_loss_pos# + self.lambda_act * g_loss_act
                 self.reset_grad()
                 g_loss.backward()
                 self.g_optimizer.step()
@@ -299,7 +304,7 @@ class Solver(object):
                 loss['G/loss_fake'] = g_loss_fake.item()
                 loss['G/loss_rec'] = g_loss_rec.item()
                 loss['G/loss_pos'] = g_loss_pos.item()
-                loss['G/loss_act'] = g_loss_act.item()
+                # loss['G/loss_act'] = g_loss_act.item()
 
             # =================================================================================== #
             #                                 4. Miscellaneous                                    #
@@ -323,10 +328,13 @@ class Solver(object):
                 with torch.no_grad():
                     x_fake_list = [x_fixed]
                     for c_fixed in c_fixed_list:
-                        x_fake_list.append(self.G(x_fixed, c_fixed))
-                    x_concat = torch.cat(x_fake_list, dim=3)
-                    sample_path = os.path.join(self.sample_dir, '{}-sensor'.format(i+1))
-                    np.save(sample_path, x_concat)
+                        x_fake_list.append(self.G(x_fixed, c_org, c_fixed))
+                    x_concat = torch.cat(x_fake_list, dim=1)
+                    sample_path = os.path.join(self.sample_dir, '{}-sensor2'.format(i+1))
+                    print(x_concat.shape)
+                    np.save(sample_path, x_concat.data.cpu())
+                    np.save(sample_path+"_poslabel", pos_label_org.data.cpu())
+                    # np.save(sample_path+"_actlabel", act_label_org.data.cpu())
                     print('Saved real and fake sensor data into {}...'.format(sample_path))
 
             # Save model checkpoints.
@@ -350,7 +358,7 @@ class Solver(object):
         self.restore_model(self.test_iters)
         
         # Set data loader.
-        if self.dataset == 'Opporutniy':
+        if self.dataset == 'Opportunity':
             data_loader = self.har_loader
         
         with torch.no_grad():
@@ -359,15 +367,18 @@ class Solver(object):
 
                 # Prepare input sensor data and target domain labels.
                 x_real = x_real.to(self.device)
+                c_org = c_org.to(self.device)
+                activity_label = activity_label.to(self.device)
                 c_trg_list = self.create_labels(c_org, self.style_dim, self.dataset, self.selected_attrs)
 
                 # Translate sensor data.
                 x_fake_list = [x_real]
                 for c_trg in c_trg_list:
-                    x_fake_list.append(self.G(x_real, c_trg))
+                    x_fake_list.append(self.G(x_real, c_org, c_trg))
 
                 # Save the translated sensor data.
-                x_concat = torch.cat(x_fake_list, dim=3)
+                x_concat = torch.cat(x_fake_list, dim=1)
                 result_path = os.path.join(self.result_dir, '{}-sensor'.format(i+1))
-                np.save(result_path, x_concat)
+                np.save(result_path, x_concat.data.cpu())
+                np.save(result_path+"_poslabel", c_org.data.cpu())
                 print('Saved real and fake sensor data into {}...'.format(result_path))

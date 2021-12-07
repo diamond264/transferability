@@ -4,6 +4,8 @@ import pandas as pd
 import time
 import numpy as np
 import sys
+sys.path.append('../')
+
 import config
 import math
 import itertools
@@ -96,20 +98,19 @@ class OpportunityDataset(torch.utils.data.Dataset):
 
     def class_to_number(self, label):
         dic = {
-            'stand': 0,
-            'walk': 1,
-            'sit': 2,
-            'lie': 3
+            # 'stand': 0,
+            'walk': 0
+            # 'sit': 2,
+            # 'lie': 3
         }
         return dic[label]
 
     def position_to_number(self, position):
         # 'RUA', 'LLA', 'L_Shoe', 'Back' ==> selected attribute positions
         dic = {
-            'RUA': 0,
-            'LLA': 1,
-            'L_Shoe': 2,
-            'Back': 3
+            'LLA': 0,
+            'L_Shoe': 1,
+            'R_Shoe': 2
         }
         return dic[position]
 
@@ -130,9 +131,12 @@ class OpportunityDataset(torch.utils.data.Dataset):
         feature = torch.transpose(feature, 0, 1)
         feature = feature.unsqueeze(0)
 
-        one_hot_position_label = torch.zeros(4)
+        one_hot_position_label = torch.zeros(3)
         # one_hot_position_label = torch.zeros(4, dtype=torch.long)
         one_hot_position_label[pl] = torch.tensor(1)
+
+        one_hot_activity_label = torch.zeros(1)
+        one_hot_activity_label[cl] = torch.tensor(1)
 
         # one_hot_cl = torch.zeros(opt['num_class']) # number of classes
         # one_hot_cl[(cl-1)] = torch.tensor(1)
@@ -141,7 +145,7 @@ class OpportunityDataset(torch.utils.data.Dataset):
 
         # might need to change the feature dimension
         # return feature, one_hot_cl
-        return feature, one_hot_position_label, cl # order (feature, one_hot_position_label, class_label)
+        return feature, one_hot_position_label, one_hot_activity_label # order (feature, one_hot_position_label, class_label)
 
 
 def get_loader(sensor_data_file_path, users, positions, activities, batch_size, dataset, mode, num_workers=1):
@@ -169,7 +173,9 @@ if __name__ == '__main__':
 
     # read for source
     oppDataset = OpportunityDataset(file='/mnt/sting/adiorz/mobile_sensing/datasets/opportunity_std_scaled_all.csv',
-                                    users = config.OpportunityOpt['users'], positions=['RUA', 'LLA', 'L_Shoe', 'Back'])
+                                    users = ['s1'], activities=['walk'], positions=['LLA', 'L_Shoe', 'R_Shoe'])
+    torch.mean(oppDataset)
+    torch.std(oppDataset)
     print("Done!")
 
 

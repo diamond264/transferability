@@ -48,10 +48,16 @@ def main(config):
 
 
         # all users, all activities, but positions are different (config.selected_attrs)
-        opportunity_loader = get_loader(sensor_data_file_path=config.opportunity_sensor_dir, users=OpportunityOpt['users'],
-                                        positions=config.selected_attrs, activities=OpportunityOpt['classes'], batch_size=config.batch_size,
-                                        dataset='Opportunity', mode=config.mode,
-                                        num_workers=config.num_workers)
+        if config.mode == 'train':
+            opportunity_loader = get_loader(sensor_data_file_path=config.opportunity_sensor_dir, users=['s1', 's2', 's3'],
+                                            positions=config.selected_attrs, activities=['walk'], batch_size=config.batch_size,
+                                            dataset='Opportunity', mode=config.mode,
+                                            num_workers=config.num_workers)
+        if config.mode == 'test':
+            opportunity_loader = get_loader(sensor_data_file_path=config.opportunity_sensor_dir, users=['s1'],
+                                            positions=config.selected_attrs, activities=['walk'], batch_size=config.batch_size,
+                                            dataset='Opportunity', mode=config.mode,
+                                            num_workers=config.num_workers)
     
     solver = Solver(opportunity_loader, config)
 
@@ -60,23 +66,23 @@ def main(config):
         solver.train()
     elif config.mode == 'test':
         print("test")
-        # solver.test()
+        solver.test()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     # Model configuration.
-    parser.add_argument('--style_dim', type=int, default=4, help='dimension of domain labels (1st dataset)') # CelebA dataset (why five? isn't it 40?) => (black hair, blond hair, brown hair, male , young)?
+    parser.add_argument('--style_dim', type=int, default=3, help='dimension of domain labels (1st dataset)') # CelebA dataset (why five? isn't it 40?) => (black hair, blond hair, brown hair, male , young)?
     parser.add_argument('--channel_dim', type=int, default=6)
     parser.add_argument('--window_size', type=int, default=60, help='image resolution') # 2d size?
-    parser.add_argument('--g_conv_dim', type=int, default=64, help='number of conv filters in the first layer of G')
-    parser.add_argument('--d_conv_dim', type=int, default=64, help='number of conv filters in the first layer of D')
-    parser.add_argument('--g_repeat_num', type=int, default=6, help='number of residual blocks in G')
-    parser.add_argument('--d_repeat_num', type=int, default=6, help='number of strided conv layers in D')
-    parser.add_argument('--lambda_pos', type=float, default=1, help='weight for domain classification loss')
-    parser.add_argument('--lambda_act', type=float, default=1, help='weight for domain classification loss')
-    parser.add_argument('--lambda_rec', type=float, default=10, help='weight for reconstruction loss')
+    parser.add_argument('--g_conv_dim', type=int, default=32, help='number of conv filters in the first layer of G')
+    parser.add_argument('--d_conv_dim', type=int, default=32, help='number of conv filters in the first layer of D')
+    parser.add_argument('--g_repeat_num', type=int, default=3, help='number of residual blocks in G')
+    parser.add_argument('--d_repeat_num', type=int, default=3, help='number of strided conv layers in D')
+    parser.add_argument('--lambda_pos', type=float, default=12, help='weight for domain classification loss')
+    parser.add_argument('--lambda_act', type=float, default=0, help='weight for domain classification loss')
+    parser.add_argument('--lambda_rec', type=float, default=0.02, help='weight for reconstruction loss')
     parser.add_argument('--lambda_gp', type=float, default=10, help='weight for gradient penalty')
     
     # Training configuration.
@@ -85,12 +91,12 @@ if __name__ == '__main__':
     # parser.add_argument('--batch_size', type=int, default=16, help='mini-batch size')
     parser.add_argument('--batch_size', type=int, default=32, help='mini-batch size')
     # parser.add_argument('--num_iters', type=int, default=200000, help='number of total iterations for training D')
-    parser.add_argument('--num_iters', type=int, default=20, help='number of total iterations for training D')
+    parser.add_argument('--num_iters', type=int, default=20000, help='number of total iterations for training D')
     # parser.add_argument('--num_iters_decay', type=int, default=100000, help='number of iterations for decaying lr')
     parser.add_argument('--num_iters_decay', type=int, default=10, help='number of iterations for decaying lr')
     parser.add_argument('--g_lr', type=float, default=0.0001, help='learning rate for G')
     parser.add_argument('--d_lr', type=float, default=0.0001, help='learning rate for D')
-    parser.add_argument('--n_critic', type=int, default=5, help='number of D updates per each G update')
+    parser.add_argument('--n_critic', type=int, default=4, help='number of D updates per each G update')
     parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for Adam optimizer')
     parser.add_argument('--beta2', type=float, default=0.999, help='beta2 for Adam optimizer')
     parser.add_argument('--resume_iters', type=int, default=None, help='resume training from this step')
@@ -98,15 +104,15 @@ if __name__ == '__main__':
     #                     default=['stand', 'walk', 'sit', 'lie'])
                         # default=['Black_Hair', 'Blond_Hair', 'Brown_Hair', 'Male', 'Young'])
     parser.add_argument('--selected_attrs', '--list', nargs='+', help='selected attributes for the Opportunity dataset',
-                        default=['RUA', 'LLA', 'L_Shoe', 'Back']) # set it as four different positions out of 7
+                        default=['LLA', 'L_Shoe', 'R_Shoe']) # set it as four different positions out of 7
 
     # Test configuration.
     # parser.add_argument('--test_iters', type=int, default=200000, help='test model from this step')
-    parser.add_argument('--test_iters', type=int, default=20, help='test model from this step')
+    parser.add_argument('--test_iters', type=int, default=20000, help='test model from this step')
 
     # Miscellaneous.
     parser.add_argument('--num_workers', type=int, default=1)
-    parser.add_argument('--mode', type=str, default='train', choices=['train', 'test'])
+    parser.add_argument('--mode', type=str, default='test', choices=['train', 'test'])
     parser.add_argument('--use_tensorboard', type=str2bool, default=True)
 
     # Directories.
@@ -122,8 +128,8 @@ if __name__ == '__main__':
 
     # Step size.
     parser.add_argument('--log_step', type=int, default=10)
-    parser.add_argument('--sample_step', type=int, default=1000)
-    parser.add_argument('--model_save_step', type=int, default=10000)
+    parser.add_argument('--sample_step', type=int, default=500)
+    parser.add_argument('--model_save_step', type=int, default=500)
     parser.add_argument('--lr_update_step', type=int, default=1000)
 
     config = parser.parse_args()
